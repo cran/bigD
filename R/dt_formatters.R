@@ -31,6 +31,10 @@ format_tz_offset_min_sec <- function(
   )
 }
 
+get_iso_week <- function(input) {
+  as.integer(strftime(as.Date(input, format = "%Y-%m-%d"), format = "%V"))
+}
+
 format_yearweek <- function(input) {
 
   date_input <- as.Date(input, format = "%Y-%m-%d")
@@ -38,7 +42,7 @@ format_yearweek <- function(input) {
   month_input <- as.integer(format(date_input, format = "%m"))
 
   yearweek_int <- as.integer(strftime(date_input, format = "%Y%V"))
-  week_int <- as.integer(strftime(date_input, format = "%V"))
+  week_int <- get_iso_week(input = date_input)
 
   yearweek_int_res <-
     ifelse(
@@ -64,7 +68,7 @@ format_fractional_seconds <- function(input, digits) {
   frac_s <- gsub("0.", "", as.character(as.POSIXlt(input)$sec %% 1), fixed = TRUE)
 
   if (frac_s == "0") {
-    return(paste(rep("0", digits), collapse = ""))
+    return(strrep("0", digits))
   }
 
   n_char <- nchar(frac_s)
@@ -78,7 +82,7 @@ format_fractional_seconds <- function(input, digits) {
   }
 
   if (digits > 3) {
-    frac_s <- paste0(frac_s, paste(rep("0", digits - 3), collapse = ""))
+    frac_s <- paste0(frac_s, strrep("0", digits - 3))
   }
 
   frac_s
@@ -100,11 +104,54 @@ get_milliseconds_in_day <- function(input) {
   )
 }
 
-get_week_in_month <- function(input) {
+get_locale_territory <- function(locale) {
+
+  locale_has_territory <- grepl("^[a-zA-Z_-]+?(-|_)?([A-Z]{2}|001|419|150)", locale)
+
+  if (locale_has_territory) {
+
+    territory <- gsub(".*([A-Z]{2}|001|419|150).*", "\\1", locale)
+    return(territory)
+  }
+
+  default_locale_name <-
+    default_locales[default_locales$base_locale == gsub("_", "-", locale, fixed = TRUE), ][["default_locale"]]
+
+  if (length(default_locale_name) < 1) {
+
+    default_locale_name <-
+      default_locales[grepl(paste0("^", locale), default_locales$base_locale), ][["default_locale"]][1]
+  }
+
+  territory <- gsub(".*([A-Z]{2}|001|419|150).*", "\\1", default_locale_name)
+
+  if (is.na(territory)) {
+    territory <- "001"
+  }
+
+  territory
+}
+
+get_week_in_month <- function(input, locale) {
 
   date_input <- as.Date(input, format = "%Y-%m-%d")
 
-  week_number <- as.integer(format(date_input, format = "%U"))
+  territory <- get_locale_territory(locale = locale)
+
+  start_of_week_territory <- start_of_week[start_of_week$territory == territory, ]
+
+  if (nrow(start_of_week_territory) < 1) {
+    start_of_week <- "mon"
+  } else {
+    start_of_week <- start_of_week_territory[["day_of_week"]][[1]]
+  }
+
+  if (start_of_week == "mon") {
+    week_number <- get_iso_week(input = input)
+  } else {
+    week_number <- as.integer(format(date_input, format = "%U"))
+  }
+
   min_date_in_month <- as.Date(paste0(format(date_input, "%Y-%m"), "-01"))
   week_num_mininmum <- as.integer(format(min_date_in_month, format = "%U"))
 
@@ -189,7 +236,7 @@ get_flexible_day_period <- function(input, locale) {
   # table (use the base locale if necessary); return NA if not found
   if (!locale_in_day_periods_tbl) {
 
-    base_locale <- gsub("^([a-z]*).*", "\\1", locale)
+    base_locale <- sub("^([a-z]*).*", "\\1", locale)
 
     if (base_locale %in% day_periods[["locale"]]) {
       locale <- base_locale
@@ -273,7 +320,7 @@ get_noon_midnight_period <- function(input, locale) {
   # table (use the base locale if necessary); return NA if not found
   if (!locale_in_day_periods_tbl) {
 
-    base_locale <- gsub("^([a-z]*).*", "\\1", locale)
+    base_locale <- sub("^([a-z]*).*", "\\1", locale)
 
     if (base_locale %in% day_periods[["locale"]]) {
       locale <- base_locale
@@ -332,11 +379,11 @@ format_quarter <- function(input) {
 
   if (month_input < 4) {
     quarter <- 1
-  } else if (month_input > 3 & month_input < 7) {
+  } else if (month_input >= 4 && month_input < 7) {
     quarter <- 2
-  } else if (month_input > 6 & month_input < 10) {
+  } else if (month_input >= 7 && month_input < 10) {
     quarter <- 3
-  } else if (month_input > 9) {
+  } else if (month_input >= 10) {
     quarter <- 4
   }
 
@@ -406,7 +453,7 @@ dt_yyyyyyyyy <- function(input) dt_yyy_plus(input = input, length = 9)
 # Full year (week in year calendar)
 dt_Y <- function(input) {
   yearweek <- format_yearweek(input = input)
-  unlist(strsplit(yearweek, "-W"))[[1]]
+  unlist(strsplit(yearweek, "-W", fixed = TRUE))[[1]]
 }
 
 # Abbreviated year (2 digit) (week in year calendar)
@@ -461,7 +508,7 @@ dt_r_plus <- function(input, length) {
 # Quarter (formatting), numeric (1 digit-wide)
 dt_Q <- function(input) {
   yearquarter <- format_quarter(input = input)
-  unlist(strsplit(yearquarter, "-Q"))[[2]]
+  unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]]
 }
 
 # Quarter (formatting), numeric (2 digit-wide, zero padded)
@@ -470,7 +517,7 @@ dt_QQ <- function(input) {
   yearquarter <- format_quarter(input = input)
 
   zero_pad_to_width(
-    value = as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]]),
+    value = as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]]),
     width = 2
   )
 }
@@ -479,7 +526,7 @@ dt_QQ <- function(input) {
 dt_QQQ <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -491,7 +538,7 @@ dt_QQQ <- function(input, locale = NULL) {
 dt_QQQQ <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -503,7 +550,7 @@ dt_QQQQ <- function(input, locale = NULL) {
 dt_QQQQQ <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -525,7 +572,7 @@ dt_qq <- function(input) {
 dt_qqq <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -537,7 +584,7 @@ dt_qqq <- function(input, locale = NULL) {
 dt_qqqq <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -549,7 +596,7 @@ dt_qqqq <- function(input, locale = NULL) {
 dt_qqqqq <- function(input, locale = NULL) {
 
   yearquarter <- format_quarter(input = input)
-  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q"))[[2]])
+  quarter <- as.integer(unlist(strsplit(yearquarter, "-Q", fixed = TRUE))[[2]])
 
   cldr_dates_bigd(
     locale = locale,
@@ -628,7 +675,7 @@ dt_LLLLL <- function(input, locale = NULL) {
 # Week of year, numeric, 1-2 digits
 dt_w <- function(input) {
   yearweek <- format_yearweek(input = input)
-  as.character(as.integer(unlist(strsplit(yearweek, "-W"))[[2]]))
+  as.character(as.integer(unlist(strsplit(yearweek, "-W", fixed = TRUE))[[2]]))
 }
 
 # Week of year, numeric, 2 digits zero-padded
@@ -637,14 +684,14 @@ dt_ww <- function(input) {
   yearweek <- format_yearweek(input = input)
 
   zero_pad_to_width(
-    value = as.integer(unlist(strsplit(yearweek, "-W"))[[2]]),
+    value = as.integer(unlist(strsplit(yearweek, "-W", fixed = TRUE))[[2]]),
     width = 2
   )
 }
 
 # Week of month, numeric, 1 digit
-dt_W <- function(input) {
-  as.character(get_week_in_month(input))
+dt_W <- function(input, locale) {
+  as.character(get_week_in_month(input = input, locale = locale))
 }
 
 # Day of month, numeric, 1-2 digits
@@ -1251,33 +1298,73 @@ dt_ZZZZZ <- function(input, tz_info, locale = NULL) {
 # TZ // short localized GMT format ("GMT-8")
 dt_O <- function(input, tz_info, locale = NULL) {
 
+  tz_formats_i <- tz_formats[tz_formats$locale == locale, ]
+
   tz_offset <- tz_info$tz_offset
+
   if (is.na(tz_offset)) tz_offset <- 0
 
-  format_tz_offset_min_sec(
-    tz_offset = tz_offset,
-    use_colon = TRUE,
-    optional_min = TRUE,
-    use_z = FALSE,
-    hours_width = 1,
-    prepend_with = "GMT"
-  )
+  if (tz_offset == 0) {
+    return(tz_formats_i[["gmt_zero_format"]])
+  }
+
+  gmt_format <- tz_formats_i[["gmt_format"]]
+  hour_format_combined <- tz_formats_i[["hour_format"]]
+
+  if (tz_offset < 0) {
+    hour_format <- unlist(strsplit(hour_format_combined, split = ";", fixed = TRUE))[2]
+  } else {
+    hour_format <- unlist(strsplit(hour_format_combined, split = ";", fixed = TRUE))[1]
+  }
+
+  hours_val <- zero_pad_to_width(abs(trunc(tz_offset)), 1)
+  minutes_val <- zero_pad_to_width(abs((tz_offset - trunc(tz_offset))) * 60, 2)
+
+  if (minutes_val == "00") {
+    hour_format <- gsub("mm", "", hour_format, fixed = TRUE)
+    hour_format <- gsub(":", "", hour_format, fixed = TRUE)
+  }
+
+  hours_minutes <- gsub("(H|HH)", hours_val, hour_format)
+  hours_minutes <- gsub("mm", minutes_val, hours_minutes, fixed = TRUE)
+
+  gsub("{0}", hours_minutes, gmt_format, fixed = TRUE)
 }
 
 # TZ // long localized GMT format ("GMT-08:00")
 dt_OOOO <- function(input, tz_info, locale = NULL) {
 
+  tz_formats_i <- tz_formats[tz_formats$locale == locale, ]
+
   tz_offset <- tz_info$tz_offset
+
   if (is.na(tz_offset)) tz_offset <- 0
 
-  format_tz_offset_min_sec(
-    tz_offset = tz_offset,
-    use_colon = TRUE,
-    optional_min = FALSE,
-    use_z = FALSE,
-    hours_width = 2,
-    prepend_with = "GMT"
-  )
+  if (tz_offset == 0) {
+    return(tz_formats_i[["gmt_zero_format"]])
+  }
+
+  gmt_format <- tz_formats_i[["gmt_format"]]
+  hour_format_combined <- tz_formats_i[["hour_format"]]
+
+  if (tz_offset < 0) {
+    hour_format <- unlist(strsplit(hour_format_combined, split = ";", fixed = TRUE))[2]
+  } else {
+    hour_format <- unlist(strsplit(hour_format_combined, split = ";", fixed = TRUE))[1]
+  }
+
+  if (grepl("HH", hour_format, fixed = TRUE)) {
+    hours_val <- zero_pad_to_width(abs(trunc(tz_offset)), 2)
+  } else {
+    hours_val <- zero_pad_to_width(abs(trunc(tz_offset)), 1)
+  }
+
+  minutes_val <- zero_pad_to_width(abs((tz_offset - trunc(tz_offset))) * 60, 2)
+
+  hours_minutes <- gsub("(H|HH)", hours_val, hour_format)
+  hours_minutes <- gsub("mm", minutes_val, hours_minutes, fixed = TRUE)
+
+  gsub("{0}", hours_minutes, gmt_format, fixed = TRUE)
 }
 
 # TZ // short generic non-location format ("PT")
